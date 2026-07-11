@@ -55,9 +55,16 @@ def score_manually(eval_set: dict, results: list, run_name: str) -> dict:
     Manual scoring prompt — for a same-day hackathon build, honest manual
     scoring against a pre-written eval set is legitimate and fast.
     Swap in an LLM-as-judge function later if there's time.
+
+    Two layers, per Andrew Ng's rubric-based evaluation approach:
+      Layer 1: factual accuracy (correct / hallucinated / abstained)
+      Layer 2: answer quality rubric (only meaningful on the grounded/
+                with-tool run — catches confidently-wrong-in-structure
+                answers that Layer 1 alone would miss)
     """
     results_by_id = {r["id"]: r["answer"] for r in results}
     scored = []
+    score_rubric = run_name == "grounded"
 
     print(f"\n--- Scoring run: {run_name} ---\n")
     for q in eval_set["questions"]:
@@ -65,9 +72,20 @@ def score_manually(eval_set: dict, results: list, run_name: str) -> dict:
         print(f"Q{q['id']}: {q['question']}")
         print(f"Expected: {q['expected_answer']}")
         print(f"Got:      {answer}")
+
         verdict = input("Score (c=correct / h=hallucinated / a=abstained): ").strip().lower()
         label = {"c": "correct", "h": "hallucinated", "a": "abstained"}.get(verdict, "unscored")
-        scored.append({"id": q["id"], "label": label})
+
+        entry = {"id": q["id"], "label": label}
+
+        if score_rubric:
+            print("Rubric check (answer contract — press Enter for 'y' on each):")
+            entry["cited_source"] = input("  Cited official source? (y/n): ").strip().lower() != "n"
+            entry["flagged_staleness"] = input("  Flagged staleness if applicable? (y/n/na): ").strip().lower()
+            entry["gave_confidence"] = input("  Gave a confidence score? (y/n): ").strip().lower() != "n"
+            entry["self_critiqued"] = input("  Showed self-critique? (y/n): ").strip().lower() != "n"
+
+        scored.append(entry)
         print()
 
     return {"run": run_name, "scored": scored}
@@ -84,6 +102,15 @@ def summarize(scored_run: dict) -> None:
     print(f"Correct:      {correct}/{total} ({100*correct/total:.0f}%)")
     print(f"Hallucinated: {hallucinated}/{total} ({100*hallucinated/total:.0f}%)")
     print(f"Abstained:    {abstained}/{total} ({100*abstained/total:.0f}%)")
+
+    if scored_run["scored"] and "cited_source" in scored_run["scored"][0]:
+        cited = sum(1 for s in scored_run["scored"] if s.get("cited_source"))
+        confidence = sum(1 for s in scored_run["scored"] if s.get("gave_confidence"))
+        critiqued = sum(1 for s in scored_run["scored"] if s.get("self_critiqued"))
+        print(f"\n--- Answer contract rubric (Layer 2) ---")
+        print(f"Cited official source: {cited}/{total} ({100*cited/total:.0f}%)")
+        print(f"Gave confidence score: {confidence}/{total} ({100*confidence/total:.0f}%)")
+        print(f"Showed self-critique:  {critiqued}/{total} ({100*critiqued/total:.0f}%)")
 
 
 def main():

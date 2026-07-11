@@ -21,18 +21,26 @@ primary source, not guesses or second-hand summaries.
 1. Check facts_cache/{company_name}.json
    → found + fresh → return cached facts immediately (no network needed)
 2. Cache miss → attempt live research (web search + fetch)
+   → SOURCE RESTRICTION: only accept results from the company's own
+     official domain (verify the fetched URL's domain matches the
+     company's known official site — reject aggregators, forums,
+     third-party summaries, and unofficial blogs, even if they rank
+     highly in search results)
    → hard timeout (5-8s) — never let a call hang
-   → success → save result to cache, return it
-   → failure (network error, timeout, empty result):
+   → success → save result to cache with "source" (official URL) and
+     "retrieved_on" (today's date) fields, return it
+   → failure (network error, timeout, empty result, or only
+     non-official sources found):
        → stale cache exists? → return it, flagged:
          "last verified on X, network unavailable for refresh"
        → no cache at all → return an honest error object, never a guess:
          { status: "unavailable", reason: "network error" }
 ```
 
-This makes the tool genuinely general-purpose (any company, not just one
-hardcoded example) while keeping the live demo's core run 100% reliable,
-since it runs entirely from cache.
+Every cache entry carries `source` and `retrieved_on`. Staleness (1 year+)
+is not judged by the server — it's flagged by the AI at answer time per
+`docs/SYSTEM_PROMPT.md`, since "how stale is too stale" is a judgment call
+best made visibly, not silently baked into the tool.
 
 ### Guardrails
 - Read-only tool. No write/action capability — nothing to confirm-gate.
@@ -40,6 +48,25 @@ since it runs entirely from cache.
   a tool is available for the topic, not blend in outside knowledge.
 - If a tool returns "unavailable," the model must say so explicitly rather
   than fall back to guessing.
+- Official-source-only research (see tool logic above) — no aggregators
+  or third-party summaries treated as ground truth.
+
+### Anti-overconfidence answer contract
+Grounding alone doesn't fix overconfidence — a model can call the right
+tool and still state the answer with false certainty, or quietly blend in
+outside knowledge. Per Andrew Ng's agentic-reflection approach (self-
+critique over single-shot answers), `docs/SYSTEM_PROMPT.md` requires every
+answer to:
+- Use bullet points, not one confident paragraph
+- Cite source + retrieval date per fact
+- Flag anything 1+ year old in *italics* with a re-check recommendation
+- Include a 1-10 confidence score reflecting source quality and freshness
+- Self-critique before finalizing: did I only use official tool data, or
+  did I infer/assume anything?
+- State plainly when data is unavailable rather than filling the gap
+
+This is what should make "with TrustPipe" answers visibly different in
+*structure*, not just correctness, from the baseline run.
 
 ## Demo (two acts + one bonus)
 **Act 1 — Without TrustPipe.** Ask Claude/Gemini factual questions about
@@ -59,10 +86,25 @@ proof point ("even in a network failure, it tells you it doesn't know
 rather than guessing").
 
 ## Eval harness
-Written before testing, not after — `eval/eval_set.json` holds
+Written before testing, not after — `eval/eval_sets/obsidian.json` holds
 question/expected-answer pairs scored against Obsidian's real published
-pricing. Score each answer as Correct / Hallucinated / Abstained, run
-once without the tool and once with it, compare.
+pricing. Two scoring layers, per Andrew Ng's rubric-based evaluation
+approach rather than a single pass/fail judgment:
+
+**Layer 1 — factual accuracy** (as before): Correct / Hallucinated /
+Abstained, run once without the tool and once with it.
+
+**Layer 2 — answer quality rubric** (with-tool run only, since this tests
+whether the answer contract was followed, not just whether the tool was
+used):
+- Cited an official source? (Y/N)
+- Flagged staleness where applicable? (Y/N)
+- Gave a confidence score? (Y/N)
+- Self-critiqued before finalizing? (Y/N)
+
+Layer 2 catches the case Layer 1 misses: a technically correct answer
+delivered with false confidence or without showing its sourcing — exactly
+the overconfidence failure mode grounding alone doesn't fix.
 
 ## Explicitly out of scope for today
 - No persistent database — cache is flat JSON files on disk.
