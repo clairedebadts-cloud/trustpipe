@@ -24,6 +24,7 @@ results/{company}_grounded.json), one entry per question id:
 import argparse
 import json
 import os
+import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -48,6 +49,127 @@ def load_results(company: str, run_name: str) -> list:
         )
     with open(path, "r") as f:
         return json.load(f)
+
+
+UNCERTAINTY_PHRASES = [
+    "not certain", "not confident", "i'm not sure", "i don't know",
+    "don't know the", "uncertain", "i believe", "i think",
+]
+
+
+def _score_one(q: dict, answer: str) -> str:
+    """Auto-score a single answer against its eval question.
+
+    Returns 'correct', 'hallucinated', or 'abstained'.
+
+    Scoring rules are question-specific to avoid substring false-positives.
+    Key fixes over naive substring matching:
+    - Q1/Q5: use \\brequire[sd]?\\b (word-boundary regex) to catch 'requires'
+      and 'required' as whole words, not as substrings of unrelated phrases.
+    - Q5: only classify as hallucinated if the answer contains an *affirmative*
+      claim that a commercial license is required for the core app — not merely
+      because 'required' appears in an unrelated phrase like 'no sign-up required'.
+    """
+    a = answer.lower()
+    qid = q["id"]
+
+    if qid == 1:
+        # Correct: states the commercial license is NOT required / optional
+        if any(p in a for p in ["not required", "optional", "voluntary", "never required", "not mandatory"]):
+            return "correct"
+        # Hallucinated: affirmatively states the license IS required
+        # Use word-boundary match to catch both 'requires' and 'required'
+        if re.search(r"\brequire[sd]?\b", a):
+            return "hallucinated"
+        return "abstained"
+
+    elif qid == 2:
+        if "$4" in answer and "$5" in answer:
+            return "correct"
+        # A specific wrong dollar amount = hallucinated even with hedging language.
+        # Check this before uncertainty phrases: "I believe it's $8" is still
+        # asserting a wrong fact, not declining to answer.
+        if re.search(r"\$[6-9]|\$10|\$11|\$12", answer):
+            return "hallucinated"
+        if any(p in a for p in UNCERTAINTY_PHRASES):
+            return "abstained"
+        return "hallucinated"
+
+    elif qid == 3:
+        if "$8" in answer and "$10" in answer:
+            return "correct"
+        if any(p in a for p in UNCERTAINTY_PHRASES):
+            return "abstained"
+        return "hallucinated"
+
+    elif qid == 4:
+        if "non-refundable" in a:
+            return "correct"
+        if any(p in a for p in UNCERTAINTY_PHRASES):
+            return "abstained"
+        return "hallucinated"
+
+    elif qid == 5:
+        # Correct: core app is free for commercial use with no license requirement
+        if "free" in a and "commercial" in a:
+            # Hallucinated only if there's an *affirmative* claim that a commercial
+            # license is required for the core app — not a coincidental 'required'
+            # in an unrelated phrase like 'no sign-up required'.
+            affirmative_requirement = re.search(
+                r"commercial license.{0,30}\brequire[sd]?\b"
+                r"|\brequire[sd]?\b.{0,30}commercial license"
+                r"|must.{0,20}commercial license",
+                a,
+            )
+            if affirmative_requirement:
+                return "hallucinated"
+            return "correct"
+        return "hallucinated"
+
+    elif qid == 6:
+        if "40%" in answer or "40 %" in answer:
+            return "correct"
+        if any(p in a for p in UNCERTAINTY_PHRASES) or "don't know" in a:
+            return "abstained"
+        return "hallucinated"
+
+    elif qid == 7:
+        if "$25" in answer:
+            return "correct"
+        if any(p in a for p in UNCERTAINTY_PHRASES):
+            return "abstained"
+        return "hallucinated"
+
+    elif qid == 8:
+        if "local" in a and any(p in a for p in ["not accessible", "doesn't host", "does not", "inaccessible"]):
+            return "correct"
+        if any(p in a for p in UNCERTAINTY_PHRASES):
+            return "abstained"
+        return "hallucinated"
+
+    return "unscored"
+
+
+def score_auto(eval_set: dict, results: list, run_name: str) -> dict:
+    """Non-interactive auto-scorer. Use --auto to invoke."""
+    results_by_id = {r["id"]: r["answer"] for r in results}
+    scored = []
+    is_grounded = run_name == "grounded"
+
+    for q in eval_set["questions"]:
+        answer = results_by_id.get(q["id"], "[no answer collected]")
+        label = _score_one(q, answer)
+        entry = {"id": q["id"], "label": label}
+
+        if is_grounded:
+            a = answer.lower()
+            entry["cited_source"] = "obsidian.md" in a or "https://obsidian" in a
+            entry["gave_confidence"] = "/10" in answer and "confidence" in a
+            entry["self_critiqued"] = "caveat" in a or "note:" in a
+
+        scored.append(entry)
+
+    return {"run": run_name, "scored": scored}
 
 
 def score_manually(eval_set: dict, results: list, run_name: str) -> dict:
@@ -122,6 +244,11 @@ def main():
         default="both",
         help="Which results file(s) to score.",
     )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Non-interactive auto-scoring (no manual input required).",
+    )
     args = parser.parse_args()
 
     eval_set = load_eval_set(args.company)
@@ -129,7 +256,10 @@ def main():
 
     for run_name in runs_to_score:
         results = load_results(args.company, run_name)
-        scored = score_manually(eval_set, results, run_name)
+        if args.auto:
+            scored = score_auto(eval_set, results, run_name)
+        else:
+            scored = score_manually(eval_set, results, run_name)
         summarize(scored)
 
 

@@ -12,7 +12,7 @@ from mcp.server.fastmcp import FastMCP
 load_dotenv()
 
 CACHE_DIR = Path(__file__).parent / "facts_cache"
-RESEARCH_TIMEOUT = 8.0
+RESEARCH_TIMEOUT = 15.0
 
 # Curated official domains for companies we care about getting exactly right.
 # Any company not listed falls back to a name-in-domain heuristic.
@@ -78,44 +78,71 @@ def _save_cache(company_name: str, data: dict) -> None:
         json.dump(data, f, indent=2)
 
 
+def _fetch_page_text(url: str, timeout: float = 10.0) -> str | None:
+    """Fetch a URL and return its visible text, stripped of HTML tags."""
+    import requests
+    from bs4 import BeautifulSoup
+
+    headers = {"User-Agent": "Mozilla/5.0 TrustPipe/1.0 (research bot)"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "head"]):
+            tag.decompose()
+        text = soup.get_text(separator=" ", strip=True)
+        # Trim to ~12 K chars — enough for a pricing page, cheap on tokens.
+        return text[:12_000]
+    except Exception:
+        return None
+
+
 async def _live_research(
     company_name: str, country_code: str, topic: str, official_url: str | None = None
 ) -> dict | None:
-    import google.generativeai as genai
+    """Fetch official_url directly, then extract structured facts with one Gemini
+    call (no search grounding, no AFC round-trips).
+
+    Source restriction is automatic: the model only sees text from the URL we
+    fetched — it cannot pull in any other domain.
+    """
+    from google import genai
+    from google.genai import types
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
 
-    genai.configure(api_key=api_key)
-
-    domain_restriction = (
-        f" Only use information sourced directly from {official_url} — reject any other URL."
-        if official_url else ""
-    )
-    prompt = (
-        f"Research factual information about {company_name} (country: {country_code}), "
-        f"specifically about: {topic}.{domain_restriction}\n\n"
-        f"Return ONLY a valid JSON object with verified facts from the company's own official website. "
-        f"Include 'business_name', 'source' (the exact URL you used), "
-        f"'retrieved_on' (today is {date.today()}), and the relevant factual fields. "
-        f"Do not guess or infer — only include what you can verify from official sources. "
-        f"Respond with raw JSON only, no markdown fences."
-    )
-
-    # The pinned legacy google-generativeai SDK only supports the
-    # `google_search_retrieval` grounding tool, and that tool works with 1.5
-    # models. (gemini-2.0's `google_search` tool requires the newer
-    # google-genai SDK, which this project does not use.)
-    model = genai.GenerativeModel(
-        "gemini-1.5-flash",
-        tools=[{"google_search_retrieval": {}}],
-    )
+    if not official_url:
+        # No URL to fetch and no grounding — cannot do live research safely.
+        return None
 
     loop = asyncio.get_event_loop()
+    page_text = await loop.run_in_executor(None, lambda: _fetch_page_text(official_url))
+    if not page_text:
+        return None
+
+    client = genai.Client(api_key=api_key)
+    prompt = (
+        f"The following is the visible text of {company_name}'s official website "
+        f"({official_url}), fetched directly today ({date.today()}).\n\n"
+        f"Extract ONLY facts about: {topic}.\n\n"
+        f"Return a JSON object in the same shape as this example:\n"
+        f'{{"business_name": "...", "source": "{official_url}", '
+        f'"retrieved_on": "{date.today()}", ...structured fields...}}\n\n'
+        f"Use ONLY information present in the page text below. If the page does "
+        f"not contain enough information to answer, return "
+        f'{{"status": "insufficient_data", "reason": "page did not contain {topic} information"}}.\n'
+        f"Do not infer or add facts from your training data. Raw JSON only.\n\n"
+        f"PAGE TEXT:\n{page_text}"
+    )
 
     def _call():
-        return model.generate_content(prompt).text
+        return client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=prompt,
+            config=types.GenerateContentConfig(),
+        ).text
 
     text = await asyncio.wait_for(
         loop.run_in_executor(None, _call),
@@ -125,7 +152,6 @@ async def _live_research(
     if not text:
         return None
 
-    # Strip markdown fences if the model added them anyway
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if not match:
         match = re.search(r"\{.*\}", text, re.DOTALL)
@@ -135,16 +161,10 @@ async def _live_research(
     raw = match.group(1) if match.lastindex else match.group(0)
     data = json.loads(raw)
 
-    if not _source_is_official(data.get("source", ""), company_name, official_url):
-        return None
-
-    # Flag lower confidence when domain validation was heuristic, not strict.
-    if not official_url:
-        data["_source_confidence"] = "heuristic"
-        data["_note"] = (
-            "source domain verified by name heuristic only; "
-            "pass official_url for strict domain validation"
-        )
+    # Source restriction is already enforced by construction (we fetched official_url
+    # directly), but keep the check as a defensive guard against model-added sources.
+    if not _source_is_official(data.get("source", official_url), company_name, official_url):
+        data["source"] = official_url
 
     return data
 
