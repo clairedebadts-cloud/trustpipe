@@ -16,17 +16,21 @@ primary source, not guesses or second-hand summaries.
 
 ## Architecture
 
-### Tool: `get_company_facts(company_name, country_code, topic)`
+### Tool: `get_company_facts(company_name, country_code, topic, official_url=None)`
 ```
 1. Check facts_cache/{company_name}.json
-   → found + fresh → return cached facts immediately (no network needed)
+   → found → return cached facts immediately (no network needed)
 2. Cache miss → attempt live research (web search + fetch)
-   → SOURCE RESTRICTION: only accept results from the company's own
-     official domain (verify the fetched URL's domain matches the
-     company's known official site — reject aggregators, forums,
-     third-party summaries, and unofficial blogs, even if they rank
-     highly in search results)
-   → hard timeout (5-8s) — never let a call hang
+   → SOURCE RESTRICTION (two-tier):
+       → official_url provided → strict domain check: reject any result
+         whose source URL's domain doesn't match official_url exactly
+         (subdomains allowed). Aggregators, forums, third-party summaries
+         are rejected even if they rank highly in search results.
+       → official_url absent → best-effort heuristic (curated domain
+         list, then company-name-in-domain). Results that pass are
+         flagged with "_source_confidence": "heuristic" so downstream
+         models can lower their stated confidence accordingly.
+   → hard timeout (8s) — never let a call hang
    → success → save result to cache with "source" (official URL) and
      "retrieved_on" (today's date) fields, return it
    → failure (network error, timeout, empty result, or only
@@ -36,6 +40,11 @@ primary source, not guesses or second-hand summaries.
        → no cache at all → return an honest error object, never a guess:
          { status: "unavailable", reason: "network error" }
 ```
+
+**Why official_url is optional:** The cache-served demo path (Act 2) never
+touches live research, so official_url is irrelevant for that path. For the
+bonus live-research act, passing official_url upgrades source checking from
+heuristic to strict — callers who know the company's URL should always pass it.
 
 Every cache entry carries `source` and `retrieved_on`. Staleness (1 year+)
 is not judged by the server — it's flagged by the AI at answer time per
