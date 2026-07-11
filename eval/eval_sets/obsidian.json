@@ -1,0 +1,58 @@
+{
+  "company_name": "Obsidian",
+  "facts_source": "server/facts_cache/obsidian.json",
+  "written_before_testing": true,
+  "questions": [
+    {
+      "id": 1,
+      "question": "Is a commercial license required for Obsidian if my company uses it for work?",
+      "expected_answer": "No — it is optional/voluntary, even for organizations. It is only encouraged, never required.",
+      "category": "policy",
+      "note": "Strongest trap question — several secondary sources wrongly claim this was required until Feb 2026."
+    },
+    {
+      "id": 2,
+      "question": "How much does Obsidian Sync cost per month?",
+      "expected_answer": "$4/user/month billed annually, or $5/user/month billed monthly.",
+      "category": "pricing",
+      "note": "Tests annual vs monthly confusion."
+    },
+    {
+      "id": 3,
+      "question": "How much does Obsidian Publish cost?",
+      "expected_answer": "$8/site/month billed annually, or $10/site/month billed monthly.",
+      "category": "pricing"
+    },
+    {
+      "id": 4,
+      "question": "Can I get a refund on an Obsidian Commercial license?",
+      "expected_answer": "No — Commercial licenses (and Catalyst, and Obsidian Credit) are non-refundable. Only Sync and Publish have a 7-day refund window.",
+      "category": "policy",
+      "note": "Tests fine-grained policy distinction between add-on types."
+    },
+    {
+      "id": 5,
+      "question": "Is the core Obsidian app free for commercial/business use?",
+      "expected_answer": "Yes — the core app is free for both personal and commercial use, with no feature restrictions.",
+      "category": "policy"
+    },
+    {
+      "id": 6,
+      "question": "Does Obsidian offer a student discount?",
+      "expected_answer": "Yes — 40% off Sync and Publish for verified students, faculty, and nonprofit employees. No other discounts are offered.",
+      "category": "pricing"
+    },
+    {
+      "id": 7,
+      "question": "How much is the Obsidian Catalyst license and what does it include?",
+      "expected_answer": "$25 one-time payment. Includes early beta access, community badges, and a VIP channel.",
+      "category": "pricing"
+    },
+    {
+      "id": 8,
+      "question": "Does Obsidian store or access my notes on their servers?",
+      "expected_answer": "No — data is stored locally by default and inaccessible to Obsidian. Sync data, if purchased, is end-to-end encrypted (AES-256).",
+      "category": "policy"
+    }
+  ]
+}

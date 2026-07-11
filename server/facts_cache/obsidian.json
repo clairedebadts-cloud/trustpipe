@@ -1,0 +1,57 @@
+{
+  "business_name": "Obsidian",
+  "source": "https://obsidian.md/pricing",
+  "retrieved_on": "2026-07-11",
+  "note": "This is an unaffiliated demo built on Obsidian's own publicly published pricing page, for illustrative purposes only.",
+
+  "core_app": {
+    "price": "Free, no limits, no sign-up required",
+    "includes_commercial_use": true,
+    "details": "The core Obsidian app is free for personal AND commercial/work use. No feature restrictions."
+  },
+
+  "pricing": {
+    "sync": {
+      "annual": "$4 USD per user, per month, billed annually",
+      "monthly": "$5 USD per user, per month, billed monthly",
+      "features": [
+        "Sync notes across devices",
+        "End-to-end encryption",
+        "Version history",
+        "Collaborate on shared vaults",
+        "Priority support"
+      ]
+    },
+    "publish": {
+      "annual": "$8 USD per site, per month, billed annually",
+      "monthly": "$10 USD per site, per month, billed monthly",
+      "features": [
+        "Publish notes to the web",
+        "No technical knowledge required",
+        "Customizable theme",
+        "Graph and full text search",
+        "Priority support"
+      ]
+    },
+    "catalyst": {
+      "price": "$25 USD one-time payment",
+      "features": ["Early access to beta versions", "Community badges", "VIP channel"]
+    },
+    "commercial_license": {
+      "price": "$50 USD per user, per year",
+      "required": false,
+      "details": "NOT required. Voluntary/optional even for organizations using Obsidian for work. Obsidian's own FAQ explicitly states organizations are only 'encouraged', not required, to purchase this to support independent development."
+    }
+  },
+
+  "policies": {
+    "refund_policy": "Full refunds within 7 days of purchase, no questions asked, for Sync and Publish only. Catalyst licenses, Commercial licenses, and Obsidian Credit are non-refundable.",
+    "data_policy": "Data is stored locally on-device by default and is not accessible to Obsidian. Sync data (if purchased) is secured with AES-256 end-to-end encryption; Obsidian does not collect telemetry or sell user data.",
+    "discounts": "40% discount on Sync and Publish for verified students, faculty, and nonprofit employees. No other discounts or promotions offered."
+  },
+
+  "common_misconception_flagged": {
+    "topic": "commercial license requirement",
+    "why_flagged": "Several third-party pricing summaries (not Obsidian's own site) claim a commercial license was 'required until Feb 2026 and then removed'. Obsidian's own FAQ contradicts this: it has never been a requirement, only a voluntary contribution. This is exactly the kind of stale/second-hand claim an AI answering from general knowledge is likely to repeat."
+  }
+}
