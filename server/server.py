@@ -200,8 +200,11 @@ async def get_company_facts(
     # Cache miss — attempt live research
     try:
         result = await _live_research(company_name, country_code, topic, official_url)
-        if result:
+        # Only cache genuine fact payloads — never cache error/status objects.
+        if result and result.get("status") not in ("insufficient_data", "unavailable"):
             _save_cache(company_name, result)
+            return result
+        if result:
             return result
     except asyncio.TimeoutError:
         if cached:
